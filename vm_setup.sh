@@ -95,6 +95,10 @@ EOF
 
 sudo chmod 755 /home/minecraft/backup.sh
 
+# Create Cloud Storage bucket if not already existing
+echo "Ensuring backup bucket gs://${PROJECT_ID}-minecraft-backup exists..."
+gcloud storage buckets create "gs://${PROJECT_ID}-minecraft-backup" 2>/dev/null || true
+
 # Run test backup
 echo "Executing test backup to gs://${PROJECT_ID}-minecraft-backup/ ..."
 sudo YOUR_BUCKET_NAME="$PROJECT_ID" /home/minecraft/backup.sh || true

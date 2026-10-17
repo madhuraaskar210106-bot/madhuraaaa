@@ -7,6 +7,10 @@ if [ -z "$YOUR_BUCKET_NAME" ]; then
     YOUR_BUCKET_NAME=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/project/project-id 2>/dev/null || gcloud config get-value project 2>/dev/null)
 fi
 
+# Ensure bucket exists
+gcloud storage buckets describe "gs://${YOUR_BUCKET_NAME}-minecraft-backup" &>/dev/null || \
+gcloud storage buckets create "gs://${YOUR_BUCKET_NAME}-minecraft-backup" 2>/dev/null || true
+
 # Ensure world directory exists
 if [ ! -d "${BASH_SOURCE%/*}/world" ]; then
     mkdir -p "${BASH_SOURCE%/*}/world"
