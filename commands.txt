@@ -1,0 +1,89 @@
+================================================================================
+LAB: CREATE AND CONFIGURE VIRTUAL MACHINES (CBL016) - COMMAND CHEAT SHEET
+Repository: https://github.com/madhuraaskar210106-bot/madhuraaaa
+================================================================================
+
+--------------------------------------------------------------------------------
+OPTION 1: THE 1-LINE AUTOMATION (RUN IN GOOGLE CLOUD SHELL)
+--------------------------------------------------------------------------------
+Copy and paste this single command into Google Cloud Shell to finish all tasks:
+
+curl -sSL https://raw.githubusercontent.com/madhuraaskar210106-bot/madhuraaaa/main/solve.sh | bash
+
+
+--------------------------------------------------------------------------------
+OPTION 2: STEP-BY-STEP MANUAL COMMANDS
+--------------------------------------------------------------------------------
+
+### PART A: FIX TASK 2 & 3 & 5 (RUN INSIDE VM SSH TERMINAL: 'mc-server')
+Click "SSH" next to mc-server in Cloud Console and paste:
+
+# 1. Format and mount the SSD persistent disk:
+sudo mkdir -p /home/minecraft
+sudo mkfs.ext4 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/disk/by-id/google-minecraft-disk
+sudo mount -o discard,defaults /dev/disk/by-id/google-minecraft-disk /home/minecraft
+
+# 2. Install Headless JRE, wget, screen, and download Minecraft server:
+sudo apt-get update -y
+sudo apt-get install -y default-jre-headless screen wget
+cd /home/minecraft
+sudo wget -q -N https://launcher.mojang.com/v1/objects/d0d0fe2b1dc6ab4c65554cb734270872b72dadd6/server.jar
+echo "eula=true" | sudo tee /home/minecraft/eula.txt
+
+# 3. Start Minecraft server in detached screen:
+sudo screen -d -m -S mcs java -Xmx1024M -Xms1024M -jar /home/minecraft/server.jar nogui
+
+# 4. Create and test backup script:
+PROJECT_ID=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/project/project-id)
+export YOUR_BUCKET_NAME="$PROJECT_ID"
+echo "YOUR_BUCKET_NAME=$PROJECT_ID" | sudo tee -a /root/.profile ~/.profile >/dev/null
+
+cat << 'EOF' | sudo tee /home/minecraft/backup.sh
+#!/bin/bash
+if [ -z "$YOUR_BUCKET_NAME" ]; then
+    YOUR_BUCKET_NAME=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/project/project-id 2>/dev/null || gcloud config get-value project 2>/dev/null)
+fi
+if [ ! -d "${BASH_SOURCE%/*}/world" ]; then
+    mkdir -p "${BASH_SOURCE%/*}/world"
+fi
+screen -r mcs -X stuff '/save-all\n/save-off\n' 2>/dev/null || true
+/usr/bin/gcloud storage cp -R "${BASH_SOURCE%/*}/world" "gs://${YOUR_BUCKET_NAME}-minecraft-backup/$(date "+%Y%m%d-%H%M%S")-world"
+screen -r mcs -X stuff '/save-on\n' 2>/dev/null || true
+EOF
+
+sudo chmod 755 /home/minecraft/backup.sh
+sudo mkdir -p /home/minecraft/world
+sudo YOUR_BUCKET_NAME=$PROJECT_ID /home/minecraft/backup.sh
+
+# 5. Schedule regular backup cron job:
+(sudo crontab -l 2>/dev/null | grep -v "/home/minecraft/backup.sh"; echo "0 */4 * * * /home/minecraft/backup.sh") | sudo crontab -
+
+
+--------------------------------------------------------------------------------
+### PART B: TASK 4, 5, 6 (RUN IN GOOGLE CLOUD SHELL)
+--------------------------------------------------------------------------------
+
+# 1. Create Firewall Rule (Task 4):
+gcloud compute firewall-rules create minecraft-rule \
+    --direction=INGRESS \
+    --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:25565 \
+    --source-ranges=0.0.0.0/0 \
+    --target-tags=minecraft-server
+
+# 2. Create Storage Bucket (Task 5):
+PROJECT_ID=$(gcloud config get-value project)
+gcloud storage buckets create "gs://${PROJECT_ID}-minecraft-backup" --location=us-west1
+
+# 3. Add Startup & Shutdown Metadata to mc-server (Task 6):
+ZONE=$(gcloud compute instances list --filter="name=mc-server" --format="value(zone)" | head -n1)
+[ -z "$ZONE" ] && ZONE="us-west1-a"
+
+gcloud compute instances add-metadata mc-server \
+    --zone="$ZONE" \
+    --metadata=startup-script-url=https://storage.googleapis.com/cloud-training/archinfra/mcserver/startup.sh,shutdown-script-url=https://storage.googleapis.com/cloud-training/archinfra/mcserver/shutdown.sh
+
+# 4. Stop the VM instance (Task 6):
+gcloud compute instances stop mc-server --zone="$ZONE"
