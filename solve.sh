@@ -20,6 +20,22 @@ fi
 echo "Target VM Zone: $ZONE"
 
 # ------------------------------------------------------------------------------
+# Task 1 & 2: Ensure 50GB SSD Persistent Disk is attached
+# ------------------------------------------------------------------------------
+echo ""
+echo ">>> [Task 1 & 2] Verifying minecraft-disk attachment..."
+if ! gcloud compute instances describe mc-server --zone="$ZONE" --format="value(disks[].deviceName)" | grep -q "minecraft-disk"; then
+    echo "minecraft-disk not found on mc-server. Creating and attaching..."
+    gcloud compute disks describe minecraft-disk --zone="$ZONE" &>/dev/null || \
+    gcloud compute disks create minecraft-disk --size=50GB --type=pd-ssd --zone="$ZONE"
+    gcloud compute instances attach-disk mc-server --disk=minecraft-disk --device-name=minecraft-disk --zone="$ZONE"
+    echo "Disk attached. Waiting 5s for OS detection..."
+    sleep 5
+else
+    echo "minecraft-disk is attached to mc-server."
+fi
+
+# ------------------------------------------------------------------------------
 # Task 4: Allow client traffic (Firewall Rule)
 # ------------------------------------------------------------------------------
 echo ""
